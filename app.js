@@ -6,7 +6,7 @@ const app = express();
 
 const PORT = process.env.PORT ?? 3001;
 
-//
+// http://localhost:3001/filter?column=age&value=25&page=1&pageSize=10
 app.get("/filter",(req, res) => {
     const results = [];
     const { column, value, page = 1, pageSize = 10 } = req.query;
