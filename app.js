@@ -1,80 +1,112 @@
 const express = require('express');
-const fs = require('fs');
+const { Storage } = require('@google-cloud/storage');
 const csv = require('csv-parser');
-const cors = require('cors')
+const cors = require('cors');
 const { default: axios } = require('axios');
-
+const stream = require('stream'); 
 const app = express();
 
 app.use(cors());
-
 const PORT = process.env.PORT ?? 3001;
+const storage = new Storage();
+const bucketName = 'gcp-nsa-asteroids'; 
 
-function randomValues(min, max){
-    return (Math.random() * (max - min) + min).toFixed(3);;
+function randomValues(min, max) {
+    return (Math.random() * (max - min) + min).toFixed(3);
 }
 
-// ASTEROIDS
-app.get("/asteroids",(req, res) => {
+async function getAsteroidsFromCSVFile(fileName, columns) {
+    return new Promise((resolve, reject) => {
+        const results = [];
+        const bucket = storage.bucket(bucketName);
+        const file = bucket.file(fileName);
 
-    const results = [];
-    const { page = 1, limit = 10 } = req.query;
-    const columns = ['full_name', 'a', 'e', 'i', 'per_y', 'diameter']
-
-    try {
-
-        const startIndex = (page - 1) * limit;
-        const endIndex = page * limit;
+        const fileStream = file.createReadStream();
         
-        fs.createReadStream('src/data/asteroids.csv')
+        fileStream
             .pipe(csv())
             .on('data', (asteroids) => {
-
                 const filteredAsteroids = {};
                 columns.forEach(column => {
-                    if(asteroids[column] !== undefined && asteroids[column] !== ''){
+                    if (asteroids[column] !== undefined && asteroids[column] !== '') {
                         filteredAsteroids[column] = asteroids[column];
                     } else {
-                        // Assign a random diameter for asteroids with empty diameter
-                        if(column === 'diameter'){
-                            filteredAsteroids[column] = `${randomValues(0.3,1.5)}`;
+                        // Assign random value if diameter is missing
+                        if (column === 'diameter') {
+                            filteredAsteroids[column] = `${randomValues(0.3, 1.5)}`;
                         }
-
                     }
                 });
                 results.push(filteredAsteroids);
             })
-            .on('end', () => {
-                const paginatedAsteroids = results.sort((asteroid1, asteroid2) => parseFloat(asteroid2.a) > parseFloat(asteroid1.a) ? -1 : 1)
-                .slice(startIndex, endIndex);
+            .on('end', () => resolve(results))
+            .on('error', (err) => reject(err));
+    });
+}
 
-                res.json(paginatedAsteroids);
-            })
-            .on('error', (err) => {
-                console.log(err);
-                res.status(500).json({ message: 'Error' });
-            });
-        
+// Filtering logic for full_name only
+function applyFilters(asteroids, filters) {
+    return asteroids.filter(asteroid => {
+        const conditions = [
+            { key: 'full_name', value: filters.full_name, compare: (a, b) => a === b }
+        ];
+
+        return conditions.every(condition => {
+            if (condition.value !== undefined && condition.value !== null) {
+                return condition.compare(asteroid[condition.key], condition.value);
+            }
+            return true;
+        });
+    });
+}
+
+// ASTEROIDS endpoint with pagination and full_name filtering
+app.get("/asteroids", async (req, res) => {
+    const { page = 1, limit = 10, full_name } = req.query;
+    const columns = ['full_name', 'a', 'e', 'i', 'per_y', 'diameter'];
+
+    try {
+        const startIndex = (page - 1) * limit;
+        const endIndex = page * limit;
+
+        const [files] = await storage.bucket(bucketName).getFiles();
+        const csvFiles = files.filter(file => file.name.endsWith('.csv'));
+
+        let allAsteroids = [];
+        for (const file of csvFiles) {
+            const asteroidsFromFile = await getAsteroidsFromCSVFile(file.name, columns);
+            allAsteroids.push(...asteroidsFromFile);
+        }
+
+        // Apply full_name filtering based on query parameter
+        const filters = { full_name };
+        allAsteroids = applyFilters(allAsteroids, filters);
+
+        // Pagination and sorting
+        const paginatedAsteroids = allAsteroids.sort((asteroid1, asteroid2) => parseFloat(asteroid2.a) > parseFloat(asteroid1.a) ? -1 : 1)
+            .slice(startIndex, endIndex);
+
+        res.json(paginatedAsteroids);
+
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Error' });
     }
+});
 
-})
-
-// COMETS
+// COMETS endpoint with pagination
 app.get("/comets", async (req, res) => {
-    
     const { page = 1, limit = 10 } = req.query;
 
     try {
+        const startIndex = (page - 1) * limit;
+        const endIndex = page * limit;
 
-        startIndex = (page - 1) * limit;
-        endIndex = page * limit;
-
+        // Fetch comet data from NASA's API
         const response = await axios.get('https://data.nasa.gov/resource/b67r-rgxc.json');
         let comets = response.data;
 
+        // Filter and map comets to relevant fields
         comets = comets.map(comet => ({
             e: comet.e,
             i_deg: comet.i_deg,
@@ -84,8 +116,8 @@ app.get("/comets", async (req, res) => {
             moid_au: comet.moid_au,
             object: comet.object
         }))
-        .sort((comet1, comet2) => comet2.e > comet1.e ? -1 : 1)
-        .slice(startIndex, endIndex);
+        .sort((comet1, comet2) => comet2.e > comet1.e ? -1 : 1) 
+        .slice(startIndex, endIndex); 
 
         res.json(comets);
 
@@ -93,9 +125,8 @@ app.get("/comets", async (req, res) => {
         console.error(error);
         res.status(500).json({ message: 'Error' });
     }
-
-})
+});
 
 app.listen(PORT, () => {
     console.log(`Server listening on http://localhost:${PORT}`);
-})
+});
