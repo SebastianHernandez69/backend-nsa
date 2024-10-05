@@ -7,6 +7,10 @@ const app = express();
 
 const PORT = process.env.PORT ?? 3001;
 
+function randomValues(min, max){
+    return (Math.random() * (max - min) + min).toFixed(3);;
+}
+
 // ASTEROIDS
 app.get("/asteroids",(req, res) => {
 
@@ -25,8 +29,14 @@ app.get("/asteroids",(req, res) => {
 
                 const filteredAsteroids = {};
                 columns.forEach(column => {
-                    if(asteroids[column] !== undefined){
+                    if(asteroids[column] !== undefined && asteroids[column] !== ''){
                         filteredAsteroids[column] = asteroids[column];
+                    } else {
+                        // Assign a random diameter for asteroids with empty diameter
+                        if(column === 'diameter'){
+                            filteredAsteroids[column] = `${randomValues(0.3,1.5)}`;
+                        }
+
                     }
                 });
                 results.push(filteredAsteroids);
