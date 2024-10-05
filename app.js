@@ -1,9 +1,12 @@
 const express = require('express');
 const fs = require('fs');
 const csv = require('csv-parser');
+const cors = require('cors')
 const { default: axios } = require('axios');
 
 const app = express();
+
+app.use(cors());
 
 const PORT = process.env.PORT ?? 3001;
 
