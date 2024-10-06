@@ -9,13 +9,13 @@ const app = express();
 app.use(cors());
 const PORT = process.env.PORT ?? 3001;
 const storage = new Storage();
-const bucketName = 'gcp-nsa-asteroids'; 
+const bucketName = 'nsa-asteroids'; 
 
 function randomValues(min, max) {
     return (Math.random() * (max - min) + min).toFixed(3);
 }
 
-async function getAsteroidsFromCSVFile(fileName, columns) {
+async function getAsteroidsFromCSVFile(bucketName, fileName, columns) {
     return new Promise((resolve, reject) => {
         const results = [];
         const bucket = storage.bucket(bucketName);
@@ -69,12 +69,54 @@ app.get("/asteroids", async (req, res) => {
         const startIndex = (page - 1) * limit;
         const endIndex = page * limit;
 
-        const [files] = await storage.bucket(bucketName).getFiles();
+        const [files] = await storage.bucket(bucketName).getFiles({
+            versions: false
+        });
         const csvFiles = files.filter(file => file.name.endsWith('.csv'));
 
         let allAsteroids = [];
         for (const file of csvFiles) {
-            const asteroidsFromFile = await getAsteroidsFromCSVFile(file.name, columns);
+            try{
+                const asteroidsFromFile = await getAsteroidsFromCSVFile(bucketName, file.name, columns);
+                allAsteroids.push(...asteroidsFromFile);
+            }catch(e){
+                console.log(e);
+            }
+        }
+
+        // Apply full_name filtering based on query parameter
+        const filters = { full_name };
+        allAsteroids = applyFilters(allAsteroids, filters);
+
+        // Pagination and sorting
+        const paginatedAsteroids = allAsteroids.sort((asteroid1, asteroid2) => parseFloat(asteroid2.a) > parseFloat(asteroid1.a) ? -1 : 1)
+            .slice(startIndex, endIndex);
+
+        res.json(paginatedAsteroids);
+
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Error' });
+    }
+});
+
+
+app.get("/planets", async (req, res) => {
+    const { page = 1, limit = 10, full_name } = req.query;
+    const columns = ['full_name', 'a', 'e', 'i', 'per_y', 'diameter'];
+
+    try {
+        const startIndex = (page - 1) * limit;
+        const endIndex = page * limit;
+        let bucketName = 'nsa-planets';
+
+        const [files] = await storage.bucket("nsa-planets").getFiles();
+        const csvFiles = files.filter(file => file.name.endsWith('.csv'));
+        console.log(csvFiles);
+
+        let allAsteroids = [];
+        for (const file of csvFiles) {
+            const asteroidsFromFile = await getAsteroidsFromCSVFile(bucketName, file.name, columns);
             allAsteroids.push(...asteroidsFromFile);
         }
 
