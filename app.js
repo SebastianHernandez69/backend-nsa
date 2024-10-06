@@ -103,7 +103,7 @@ app.get("/asteroids", async (req, res) => {
 
 app.get("/planets", async (req, res) => {
     const { page = 1, limit = 10, full_name } = req.query;
-    const columns = ['full_name', 'a', 'e', 'i', 'per_y', 'diameter'];
+    const columns = ['full_name', 'a', 'e', 'om', 'w', 'i', 'per_y', 'diameter'];
 
     try {
         const startIndex = (page - 1) * limit;
